@@ -42,23 +42,47 @@ class R2GenMultiTaskModel(nn.Module):
 
     def forward_iu_xray(self, images, targets=None, entity_targets=None, mode='train', task=None):
         # Extract visual features from the two images
-        att_feats_0, fc_feats_0 = self.visual_extractor(images[:, 0])
-        att_feats_1, fc_feats_1 = self.visual_extractor(images[:, 1])
+        # att_feats_0, fc_feats_0 = self.visual_extractor(images[:, 0])
+        # att_feats_1, fc_feats_1 = self.visual_extractor(images[:, 1])
         
-        # Concatenate features from both images
-        fc_feats = torch.cat((fc_feats_0, fc_feats_1), dim=1)
-        att_feats = torch.cat((att_feats_0, att_feats_1), dim=1)
+        # # Concatenate features from both images
+        # fc_feats = torch.cat((fc_feats_0, fc_feats_1), dim=1)
+        # att_feats = torch.cat((att_feats_0, att_feats_1), dim=1)
         
         # Determine the output based on mode and task
         if mode == 'train':
             # Perform specific task or both tasks
             if task == 'entity':
+                att_feats_0, fc_feats_0 = self.visual_extractor(images[:, 0])
+                att_feats_1, fc_feats_1 = self.visual_extractor(images[:, 1])   
+                fc_feats = torch.cat((fc_feats_0, fc_feats_1), dim=1)
                 # Only perform entity prediction
                 entity_logits = self.entity_predictor(fc_feats)
                 return entity_logits
             elif task == 'report':
                 # Only generate report
-                output = self.encoder_decoder(fc_feats, att_feats, targets, mode='forward')
+                with torch.no_grad():
+                    att_feats_0, fc_feats_0 = self.visual_extractor(images[:, 0]) #resnet 不更新
+                    att_feats_1, fc_feats_1 = self.visual_extractor(images[:, 1])   
+                    fc_feats = torch.cat((fc_feats_0, fc_feats_1), dim=1)
+                    att_feats = torch.cat((att_feats_0, att_feats_1), dim=1)
+                    entity_logits = self.entity_predictor(fc_feats) #entity predictor 不更新
+                    entity_probs = torch.sigmoid(entity_logits)
+
+                    # 使用广播得到相同维度的entity_probs
+                    entity_probs_expanded = entity_probs.unsqueeze(1)  # [batch, 1, vocab_size]
+                    entity_probs_expanded = entity_probs_expanded.expand(-1, att_feats.size(1), -1)
+                    # 现在在乘法操作时会自动广播到 [batch, patch_num, vocab_size]
+                    # print(f"att_feats shape: {att_feats.shape}")
+                    # print(f"entity_probs_expanded shape: {entity_probs_expanded.shape}")
+                    # exit()
+                    # 创建连接并交互
+                    features_a_concat_b = torch.cat((att_feats, entity_probs_expanded), dim=2)  # [batch, patch_num, d_vf+vocab_size]
+                    features_b_concat_a = torch.cat((entity_probs_expanded, att_feats), dim=2)  # [batch, patch_num, vocab_size+d_vf]
+
+                    # 对应元素相乘，这里会自动广播entity_probs
+                    cross_features = features_a_concat_b * features_b_concat_a
+                output = self.encoder_decoder(fc_feats, cross_features, targets, mode='forward') #只更新encoderdecoder
                 return output
             else:
                 raise ValueError(f"Did not specify task")
@@ -66,44 +90,93 @@ class R2GenMultiTaskModel(nn.Module):
         elif mode == 'sample':
             # Sampling mode (for evaluation or inference)
             if task == 'entity':
+                att_feats_0, fc_feats_0 = self.visual_extractor(images[:, 0])
+                att_feats_1, fc_feats_1 = self.visual_extractor(images[:, 1])   
+                fc_feats = torch.cat((fc_feats_0, fc_feats_1), dim=1)
                 # Use concatenated features for both images
                 entity_logits = self.entity_predictor(fc_feats)
                 return entity_logits
             else:
                 # Default to report generation for sampling
-                output, _ = self.encoder_decoder(fc_feats, att_feats, mode='sample')
+                
+                with torch.no_grad():
+                    att_feats_0, fc_feats_0 = self.visual_extractor(images[:, 0]) #resnet 不更新
+                    att_feats_1, fc_feats_1 = self.visual_extractor(images[:, 1])   
+                    fc_feats = torch.cat((fc_feats_0, fc_feats_1), dim=1)
+                    att_feats = torch.cat((att_feats_0, att_feats_1), dim=1)
+                    entity_logits = self.entity_predictor(fc_feats) #entity predictor 不更新
+                    entity_probs = torch.sigmoid(entity_logits)
+
+                    # 使用广播得到相同维度的entity_probs
+                    entity_probs_expanded = entity_probs.unsqueeze(1)  # [batch, 1, vocab_size]
+                    entity_probs_expanded = entity_probs_expanded.expand(-1, att_feats.size(1), -1)
+
+                    # 现在在乘法操作时会自动广播到 [batch, patch_num, vocab_size]
+
+                    # 创建连接并交互
+                    features_a_concat_b = torch.cat((att_feats, entity_probs_expanded), dim=2)  # [batch, patch_num, d_vf+vocab_size]
+                    features_b_concat_a = torch.cat((entity_probs_expanded, att_feats), dim=2)  # [batch, patch_num, vocab_size+d_vf]
+
+                    # 对应元素相乘，这里会自动广播entity_probs
+                    cross_features = features_a_concat_b * features_b_concat_a               
+                output, _ = self.encoder_decoder(fc_feats,cross_features , mode='sample')
                 return output
         else:
             raise ValueError(f"Unsupported mode: {mode}")
 
     def forward_mimic_cxr(self, images, targets=None, entity_targets=None, mode='train', task=None):
         # Extract features from a single image
-        att_feats, fc_feats = self.visual_extractor(images)
+        # att_feats, fc_feats = self.visual_extractor(images)
         
         # Determine the output based on mode and task
         if mode == 'train':
             # Perform specific task or both tasks
             if task == 'entity':
                 # Only perform entity prediction
+                att_feats, fc_feats = self.visual_extractor(images)
                 entity_logits = self.entity_predictor(fc_feats)
                 return entity_logits
             elif task == 'report':
                 # Only generate report
-                output = self.encoder_decoder(fc_feats, att_feats, targets, mode='forward')
+                with torch.no_grad():
+                    att_feats, fc_feats = self.visual_extractor(images)
+                    entity_logits = self.entity_predictor(fc_feats)  
+                    entity_probs = torch.sigmoid(entity_logits)
+                    entity_probs_expanded = entity_probs.unsqueeze(1)  # [batch, 1, vocab_size]
+
+                    features_a_concat_b = torch.cat((att_feats, entity_probs_expanded), dim=2)  # [batch, patch_num, d_vf+vocab_size]
+                    features_b_concat_a = torch.cat((entity_probs_expanded, att_feats), dim=2)  # [batch, patch_num, vocab_size+d_vf]
+
+                    # 对应元素相乘，这里会自动广播entity_probs
+                    cross_features = features_a_concat_b * features_b_concat_a              
+                
+                output = self.encoder_decoder(fc_feats, cross_features, targets, mode='forward')
                 return output
             else:
-                # Perform both tasks (task is None)
-                entity_logits = self.entity_predictor(fc_feats)
-                output = self.encoder_decoder(fc_feats, att_feats, targets, mode='forward')
-                return output, entity_logits
+                raise ValueError(f"Did not specify task")
                 
         elif mode == 'sample':
             # Sampling mode (for evaluation or inference)
             if task == 'entity':
+                
+                att_feats, fc_feats = self.visual_extractor(images)
                 entity_logits = self.entity_predictor(fc_feats)
                 return entity_logits
             else:
                 # Default to report generation for sampling
+                
+                with torch.no_grad():
+                    att_feats, fc_feats = self.visual_extractor(images)
+                    entity_logits = self.entity_predictor(fc_feats)  
+                    entity_probs = torch.sigmoid(entity_logits)
+                    entity_probs_expanded = entity_probs.unsqueeze(1)  # [batch, 1, vocab_size]
+                    features_a_concat_b = torch.cat((att_feats, entity_probs_expanded), dim=2)  # [batch, patch_num, d_vf+vocab_size]
+                    features_b_concat_a = torch.cat((entity_probs_expanded, att_feats), dim=2)  # [batch, patch_num, vocab_size+d_vf]
+
+                    # 对应元素相乘，这里会自动广播entity_probs
+                    cross_features = features_a_concat_b * features_b_concat_a              
+                
+                output = self.encoder_decoder(fc_feats, cross_features, targets, mode='forward')
                 output, _ = self.encoder_decoder(fc_feats, att_feats, mode='sample')
                 return output
         else:

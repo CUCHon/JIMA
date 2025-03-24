@@ -55,13 +55,19 @@ class AttModel(CaptionModel):
 
         self.embed = lambda x: x
         self.fc_embed = lambda x: x
+        # self.att_embed = nn.Sequential(*(
+        #         ((nn.BatchNorm1d(self.att_feat_size),) if self.use_bn else ()) +
+        #         (nn.Linear(self.att_feat_size, self.input_encoding_size),
+        #          nn.ReLU(),
+        #          nn.Dropout(self.drop_prob_lm)) +
+        #         ((nn.BatchNorm1d(self.input_encoding_size),) if self.use_bn == 2 else ())))
+
         self.att_embed = nn.Sequential(*(
-                ((nn.BatchNorm1d(self.att_feat_size),) if self.use_bn else ()) +
-                (nn.Linear(self.att_feat_size, self.input_encoding_size),
+                ((nn.BatchNorm1d(self.att_feat_size+self.vocab_size),) if self.use_bn else ()) +
+                (nn.Linear(self.att_feat_size+self.vocab_size, self.input_encoding_size),
                  nn.ReLU(),
                  nn.Dropout(self.drop_prob_lm)) +
                 ((nn.BatchNorm1d(self.input_encoding_size),) if self.use_bn == 2 else ())))
-
     def clip_att(self, att_feats, att_masks):
         # Clip the length of att_masks and att_feats to the maximum length
         if att_masks is not None:
