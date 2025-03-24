@@ -16,10 +16,13 @@ class BaseDataset(Dataset):
         self.ann = json.loads(open(self.ann_path, 'r').read())
 
         self.examples = self.ann[self.split]
-        for i in range(len(self.examples)):
+
+        for i in range(len(self.examples)):                    
             self.examples[i]['ids'] = tokenizer(self.examples[i]['report'])[:self.max_seq_length]
             self.examples[i]['mask'] = [1] * len(self.examples[i]['ids'])
-
+            self.examples[i]['entity_ids'] = [tokenizer.get_id_by_token(token) for token in self.examples[i]['tokens']]
+            
+            self.examples[i]['entity_nums'] = len(self.examples[i]['entity_ids'])
     def __len__(self):
         return len(self.examples)
 
@@ -37,8 +40,10 @@ class IuxrayMultiImageDataset(BaseDataset):
         image = torch.stack((image_1, image_2), 0)
         report_ids = example['ids']
         report_masks = example['mask']
+        entity_ids = example['entity_ids']
+        entity_nums = example['entity_nums']
         seq_length = len(report_ids)
-        sample = (image_id, image, report_ids, report_masks, seq_length)
+        sample = (image_id, image, report_ids, report_masks, seq_length, entity_ids,entity_nums)
         return sample
 
 
@@ -52,6 +57,9 @@ class MimiccxrSingleImageDataset(BaseDataset):
             image = self.transform(image)
         report_ids = example['ids']
         report_masks = example['mask']
+        entity_ids = example['entity_ids']
+        entity_nums = example['entity_nums']
         seq_length = len(report_ids)
-        sample = (image_id, image, report_ids, report_masks, seq_length)
+
+        sample = (image_id, image, report_ids, report_masks, seq_length, entity_ids, entity_nums)
         return sample
