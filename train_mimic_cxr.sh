@@ -1,6 +1,6 @@
 python main_train.py \
 --image_dir data/mimic_cxr/images/ \
---ann_path data/mimic_cxr/annotation.json \
+--ann_path data/mimic_cxr/annotation_label_with_filtered_tokens.json  \
 --dataset_name mimic_cxr \
 --max_seq_length 100 \
 --threshold 10 \
