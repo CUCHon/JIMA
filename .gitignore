@@ -143,3 +143,4 @@ cython_debug/
 # Data
 data/iu_xray/
 data/mimic_cxr/
+results/
