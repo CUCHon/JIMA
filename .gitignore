@@ -141,6 +141,6 @@ cython_debug/
 .idea/
 
 # Data
-data/iu_xray/
-data/mimic_cxr/
+/hdd18t/JIMA/data/iu_xray/
+/hdd18t/JIMA/data/mimic_cxr/
 results/

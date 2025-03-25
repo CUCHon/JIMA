@@ -23,6 +23,28 @@ class BaseDataset(Dataset):
             self.examples[i]['entity_ids'] = [tokenizer.get_id_by_token(token) for token in self.examples[i]['tokens']]
             
             self.examples[i]['entity_nums'] = len(self.examples[i]['entity_ids'])
+            self.examples[i]['difficulty'] = 0.0
+    def set_difficulty_scores(self, difficulty_dict):
+        """
+        外部接口：设置每个样本的 difficulty 分数（由 image_id 索引）
+        """
+        for example in self.examples:
+            image_id = example['id']
+            if image_id in difficulty_dict:
+                example['difficulty'] = difficulty_dict[image_id]
+
+    def sort_by_difficulty(self):
+        """
+        将样本按 difficulty 升序排序（越容易排在越前面）
+        """
+        self.examples.sort(key=lambda x: x['difficulty'])
+
+    def filter_by_curriculum_ratio(self, ratio):
+        """
+        保留前 ratio 百分比的样本
+        """
+        num = int(len(self.examples) * ratio)
+        self.examples = self.examples[:max(1, num)]
     def __len__(self):
         return len(self.examples)
 
@@ -30,6 +52,8 @@ class BaseDataset(Dataset):
 class IuxrayMultiImageDataset(BaseDataset):
     def __getitem__(self, idx):
         example = self.examples[idx]
+        # print(example)
+        # exit()
         image_id = example['id']
         image_path = example['image_path']
         image_1 = Image.open(os.path.join(self.image_dir, image_path[0])).convert('RGB')

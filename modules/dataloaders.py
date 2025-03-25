@@ -6,7 +6,7 @@ from .datasets import IuxrayMultiImageDataset, MimiccxrSingleImageDataset
 
 
 class R2DataLoader(DataLoader):
-    def __init__(self, args, tokenizer, split, shuffle, seed=None):
+    def __init__(self, args, tokenizer, split, shuffle, seed=None, curriculum_ratio=1.0, difficulty_scores=None):
         # 如果提供了种子，设置随机数种子
         if seed is not None and shuffle:
             torch.manual_seed(seed)
@@ -41,9 +41,19 @@ class R2DataLoader(DataLoader):
         else:
             self.dataset = MimiccxrSingleImageDataset(self.args, self.tokenizer, self.split, transform=self.transform)
 
+        # 如果提供了 difficulty_scores，则设置难度
+        if difficulty_scores is not None:
+            self.dataset.set_difficulty_scores(difficulty_scores)
+
+        # curriculum_ratio < 1 时启用 curriculum learning
+        if curriculum_ratio < 1.0 and split == 'train':
+            self.dataset.sort_by_difficulty()
+            self.dataset.filter_by_curriculum_ratio(curriculum_ratio)
+
+
         # 保存词典大小为类变量
         R2DataLoader.vocab_size = tokenizer.get_vocab_size()
-        print(R2DataLoader.vocab_size)
+        # print(R2DataLoader.vocab_size)
 
         self.init_kwargs = {
             'dataset': self.dataset,

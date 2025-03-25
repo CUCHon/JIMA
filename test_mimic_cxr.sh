@@ -1,6 +1,6 @@
 python main_test.py \
---image_dir data/mimic_cxr/images/ \
---ann_path data/mimic_cxr/annotation.json \
+--image_dir /hdd18t/JIMA/data/mimic_cxr/images/ \
+--ann_path /hdd18t/JIMA/data/mimic_cxr/annotation.json \
 --dataset_name mimic_cxr \
 --max_seq_length 100 \
 --threshold 10 \
@@ -10,5 +10,5 @@ python main_test.py \
 --step_size 1 \
 --gamma 0.8 \
 --seed 42 \
---load data/model_mimic_cxr.pth \
+--load /hdd18t/JIMA/data/model_mimic_cxr.pth \
 --beam_size 2

@@ -13,13 +13,79 @@ from modules.entity_predictor import compute_entity_loss
 from modules.loss import compute_loss
 from models.r2gen import R2GenMultiTaskModel
 
+def compute_rank(tensor):
+    """返回 tensor 中每个元素在降序排列中的排名（从 1 开始）"""
+    sorted_indices = torch.argsort(tensor, descending=True)
+    ranks = torch.empty_like(sorted_indices)
+    ranks[sorted_indices] = torch.arange(1, len(tensor) + 1, device=tensor.device)
+    return ranks
+
+def compute_entity_difficulty(model, dataloader, tokenizer, device):
+    model.eval()
+    difficulty_scores = {}
+
+    with torch.no_grad():
+        for image_ids, images, _, _, entity_targets in dataloader:
+            images = images.to(device)
+            entity_targets = entity_targets.to(device)
+
+            logits = model(images, mode='sample', task='entity')  # [B, V]
+            probs = torch.sigmoid(logits)  # [B, V]
+            vocab_size = probs.size(1)
+
+            for i in range(probs.size(0)):
+                true_indices = (entity_targets[i] > 0).nonzero(as_tuple=True)[0]
+                if len(true_indices) == 0:
+                    difficulty_scores[image_ids[i]] = 0.0
+                    continue
+
+                ranks = compute_rank(probs[i])  # [V]
+                score = sum((ranks[idx] / vocab_size).item() for idx in true_indices) / len(true_indices)
+                difficulty_scores[image_ids[i]] = score
+    return difficulty_scores
+
+def compute_report_difficulty(model, dataloader, tokenizer, device):
+    model.eval()
+    difficulty_scores = {}
+
+    with torch.no_grad():
+        for image_ids, images, targets, masks, _ in dataloader:
+            images = images.to(device)
+            targets = targets.to(device)
+            masks = masks.to(device)
+
+            targets_input = targets[:, :-1]
+            targets_output = targets[:, 1:]
+            masks = masks[:, 1:]
+
+            outputs = model(images, targets_input, mode='train', task='report')  # [B, L-1, V]
+            probs = torch.softmax(outputs, dim=-1)
+            vocab_size = probs.size(-1)
+
+            for b in range(probs.size(0)):
+                total_rank = 0
+                valid_len = 0
+                for i in range(probs.size(1)):
+                    if masks[b, i] == 0:
+                        continue
+                    gold = targets_output[b, i].item()
+                    ranks = compute_rank(probs[b, i])
+                    total_rank += (ranks[gold] / vocab_size).item()
+                    valid_len += 1
+                difficulty_scores[image_ids[b]] = total_rank / max(1, valid_len)
+    return difficulty_scores
+
+def update_curriculum_ratio(s_t, s_t_prev, c_prev):
+    ratio = 1 - ((s_t - s_t_prev) / (s_t_prev + 1e-8))
+    return min(1.0, max(0.1, ratio * c_prev))
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
 
     # Data input settings
-    parser.add_argument('--image_dir', type=str, default='data/iu_xray/images/', help='the path to the directory containing the data.')
-    parser.add_argument('--ann_path', type=str, default='data/iu_xray/annotation.json', help='the path to the directory containing the data.')
+    parser.add_argument('--image_dir', type=str, default='/hdd18t/JIMA/data/iu_xray/images/', help='the path to the directory containing the data.')
+    parser.add_argument('--ann_path', type=str, default='/hdd18t/JIMA/data/iu_xray/annotation.json', help='the path to the directory containing the data.')
 
     # Data loader settings
     parser.add_argument('--dataset_name', type=str, default='iu_xray', choices=['iu_xray', 'mimic_cxr'], help='the dataset to be used.')
@@ -146,6 +212,10 @@ def main():
     best_score = float('-inf') if args.monitor_mode == 'max' else float('inf')
     not_improved_count = 0
     
+    curriculum_ratio = 1.0
+    c_prev = 1.0
+    s_t_prev = None  # 用于保存上一轮性能
+
     if args.resume:
         print(f"Loading checkpoint: {args.resume}")
         checkpoint = torch.load(args.resume)
@@ -162,6 +232,13 @@ def main():
     for epoch in range(start_epoch, args.epochs):
         print(f"Epoch {epoch+1}/{args.epochs}")
         
+        # 使用 curriculum_ratio 构建 dataloader（每轮重新构建）
+        train_dataloader_report = R2DataLoader(args, tokenizer, split='train', shuffle=True,
+                                               seed=args.seed, curriculum_ratio=curriculum_ratio)
+        train_dataloader_entity = R2DataLoader(args, tokenizer, split='train', shuffle=True,
+                                               seed=args.seed+1, curriculum_ratio=curriculum_ratio)
+
+
         # 训练一个epoch
         train_losses = train_epoch_alternating(
             model, 
@@ -183,6 +260,35 @@ def main():
             entity_loss_weight
         )
         
+        ### Curriculum 控制逻辑（从第10轮开始）
+        if epoch+1 >= 10:
+            print("Computing difficulty scores for curriculum learning...")
+
+            # 用完整训练集计算 difficulty
+            full_train_loader = R2DataLoader(args, tokenizer, split='train', shuffle=False, seed=args.seed)
+            entity_diff = compute_entity_difficulty(model, full_train_loader, tokenizer, device)
+            report_diff = compute_report_difficulty(model, full_train_loader, tokenizer, device)
+            # print(f'diff_1:{entity_diff}, diff_2:{report_diff}')
+            # 融合两类任务的难度
+            combined_diff = {
+                k: 0.5 * entity_diff.get(k, 0) + 0.5 * report_diff.get(k, 0)
+                for k in entity_diff
+            }
+
+            # 设置难度
+            train_dataloader_report.dataset.set_difficulty_scores(combined_diff)
+
+            # 当前性能（平均 BLEU 或 entity_f1）
+            s_t = val_metrics.get(args.monitor_metric, 0)
+
+            # 更新 curriculum_ratio
+            if s_t_prev is not None:
+                curriculum_ratio = update_curriculum_ratio(s_t, s_t_prev, c_prev)
+                c_prev = curriculum_ratio
+            s_t_prev = s_t
+
+            print(f"Updated curriculum ratio: {curriculum_ratio:.4f}")
+
         # 学习率调度
         lr_scheduler.step()
         
