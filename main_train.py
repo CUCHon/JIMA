@@ -82,6 +82,10 @@ def update_curriculum_ratio(s_t, s_t_prev, c_prev):
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--freeze_visual_extractor_on_task2', action='store_true',
+                    help='Freeze visual extractor when generating reports (task=report)')
+    parser.add_argument('--freeze_visual_extractor_on_task1', action='store_true',
+                    help='Freeze visual extractor when')
 
     # Data input settings
     parser.add_argument('--image_dir', type=str, default='/hdd18t/JIMA/data/iu_xray/images/', help='the path to the directory containing the data.')
@@ -215,6 +219,9 @@ def main():
     curriculum_ratio = 1.0
     c_prev = 1.0
     s_t_prev = None  # 用于保存上一轮性能
+    report_diff = None
+    entity_diff = None
+    warm_up_round = 10
 
     if args.resume:
         print(f"Loading checkpoint: {args.resume}")
@@ -233,10 +240,17 @@ def main():
         print(f"Epoch {epoch+1}/{args.epochs}")
         
         # 使用 curriculum_ratio 构建 dataloader（每轮重新构建）
-        train_dataloader_report = R2DataLoader(args, tokenizer, split='train', shuffle=True,
-                                               seed=args.seed, curriculum_ratio=curriculum_ratio)
-        train_dataloader_entity = R2DataLoader(args, tokenizer, split='train', shuffle=True,
-                                               seed=args.seed+1, curriculum_ratio=curriculum_ratio)
+        # 每一轮根据当前 curriculum_ratio 创建 dataloader
+        train_dataloader_report = R2DataLoader(
+            args, tokenizer, split='train', shuffle=True,
+            seed=args.seed, curriculum_ratio=curriculum_ratio,  # 用 task2 难度
+            difficulty_scores=report_diff if epoch+2 > warm_up_round else None
+        )
+        train_dataloader_entity = R2DataLoader(
+            args, tokenizer, split='train', shuffle=True,
+            seed=args.seed + 1, curriculum_ratio=curriculum_ratio,  # 用 task1 难度
+            difficulty_scores=entity_diff if epoch+2 > warm_up_round else None
+        )
 
 
         # 训练一个epoch
@@ -261,7 +275,7 @@ def main():
         )
         
         ### Curriculum 控制逻辑（从第10轮开始）
-        if epoch+1 >= 10:
+        if epoch+1 > warm_up_round:
             print("Computing difficulty scores for curriculum learning...")
 
             # 用完整训练集计算 difficulty
@@ -270,13 +284,13 @@ def main():
             report_diff = compute_report_difficulty(model, full_train_loader, tokenizer, device)
             # print(f'diff_1:{entity_diff}, diff_2:{report_diff}')
             # 融合两类任务的难度
-            combined_diff = {
-                k: 0.5 * entity_diff.get(k, 0) + 0.5 * report_diff.get(k, 0)
-                for k in entity_diff
-            }
+            # combined_diff = {
+            #     k: 0.2 * entity_diff.get(k, 0) + 0.8 * report_diff.get(k, 0)
+            #     for k in entity_diff
+            # }
 
             # 设置难度
-            train_dataloader_report.dataset.set_difficulty_scores(combined_diff)
+            # train_dataloader_report.dataset.set_difficulty_scores(combined_diff)
 
             # 当前性能（平均 BLEU 或 entity_f1）
             s_t = val_metrics.get(args.monitor_metric, 0)

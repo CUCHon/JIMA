@@ -9,4 +9,5 @@ nohup python main_train.py \
 --save_dir results/iu_xray \
 --step_size 50 \
 --gamma 0.1 \
---seed 9 > train_iu.log 2>&1 &
+--seed 9 > train_iu_nofreeze.log 2>&1 &
+# --freeze_visual_extractor_on_task2 \

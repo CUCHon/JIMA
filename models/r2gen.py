@@ -53,17 +53,28 @@ class R2GenMultiTaskModel(nn.Module):
         if mode == 'train':
             # Perform specific task or both tasks
             if task == 'entity':
-                att_feats_0, fc_feats_0 = self.visual_extractor(images[:, 0])
-                att_feats_1, fc_feats_1 = self.visual_extractor(images[:, 1])   
+                if self.args.freeze_visual_extractor_on_task1:
+                    with torch.no_grad():
+                        att_feats_0, fc_feats_0 = self.visual_extractor(images[:, 0])
+                        att_feats_1, fc_feats_1 = self.visual_extractor(images[:, 1])
+                else:
+                    att_feats_0, fc_feats_0 = self.visual_extractor(images[:, 0])
+                    att_feats_1, fc_feats_1 = self.visual_extractor(images[:, 1])  
                 fc_feats = torch.cat((fc_feats_0, fc_feats_1), dim=1)
                 # Only perform entity prediction
                 entity_logits = self.entity_predictor(fc_feats)
                 return entity_logits
             elif task == 'report':
                 # Only generate report
+                if self.args.freeze_visual_extractor_on_task2:
+                    with torch.no_grad():
+                        att_feats_0, fc_feats_0 = self.visual_extractor(images[:, 0])
+                        att_feats_1, fc_feats_1 = self.visual_extractor(images[:, 1])
+                else:
+                    att_feats_0, fc_feats_0 = self.visual_extractor(images[:, 0])
+                    att_feats_1, fc_feats_1 = self.visual_extractor(images[:, 1])
+
                 with torch.no_grad():
-                    att_feats_0, fc_feats_0 = self.visual_extractor(images[:, 0]) #resnet 不更新
-                    att_feats_1, fc_feats_1 = self.visual_extractor(images[:, 1])   
                     fc_feats = torch.cat((fc_feats_0, fc_feats_1), dim=1)
                     att_feats = torch.cat((att_feats_0, att_feats_1), dim=1)
                     entity_logits = self.entity_predictor(fc_feats) #entity predictor 不更新
@@ -142,7 +153,11 @@ class R2GenMultiTaskModel(nn.Module):
                     att_feats, fc_feats = self.visual_extractor(images)
                     entity_logits = self.entity_predictor(fc_feats)  
                     entity_probs = torch.sigmoid(entity_logits)
+                     # 使用广播得到相同维度的entity_probs
                     entity_probs_expanded = entity_probs.unsqueeze(1)  # [batch, 1, vocab_size]
+                    # entity_probs_expanded = entity_probs.unsqueeze(1)  # [batch, 1, vocab_size]
+                    entity_probs_expanded = entity_probs_expanded.expand(-1, att_feats.size(1), -1)
+                    #
 
                     features_a_concat_b = torch.cat((att_feats, entity_probs_expanded), dim=2)  # [batch, patch_num, d_vf+vocab_size]
                     features_b_concat_a = torch.cat((entity_probs_expanded, att_feats), dim=2)  # [batch, patch_num, vocab_size+d_vf]
@@ -170,14 +185,16 @@ class R2GenMultiTaskModel(nn.Module):
                     entity_logits = self.entity_predictor(fc_feats)  
                     entity_probs = torch.sigmoid(entity_logits)
                     entity_probs_expanded = entity_probs.unsqueeze(1)  # [batch, 1, vocab_size]
+                    entity_probs_expanded = entity_probs_expanded.expand(-1, att_feats.size(1), -1)
+
                     features_a_concat_b = torch.cat((att_feats, entity_probs_expanded), dim=2)  # [batch, patch_num, d_vf+vocab_size]
                     features_b_concat_a = torch.cat((entity_probs_expanded, att_feats), dim=2)  # [batch, patch_num, vocab_size+d_vf]
 
                     # 对应元素相乘，这里会自动广播entity_probs
                     cross_features = features_a_concat_b * features_b_concat_a              
                 
-                output = self.encoder_decoder(fc_feats, cross_features, targets, mode='forward')
-                output, _ = self.encoder_decoder(fc_feats, att_feats, mode='sample')
+                output = self.encoder_decoder(fc_feats, cross_features, mode='sample')
+                # output, _ = self.encoder_decoder(fc_feats, att_feats, mode='sample')
                 return output
         else:
             raise ValueError(f"Unsupported mode: {mode}")
