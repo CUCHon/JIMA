@@ -11,7 +11,7 @@ class R2DataLoader(DataLoader):
         if seed is not None and shuffle:
             torch.manual_seed(seed)
             np.random.seed(seed)
-            
+
         self.args = args
         self.dataset_name = args.dataset_name
         self.batch_size = args.batch_size

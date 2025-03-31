@@ -143,6 +143,7 @@ class R2GenMultiTaskModel(nn.Module):
                     entity_logits = self.entity_predictor(fc_feats)  
                     entity_probs = torch.sigmoid(entity_logits)
                     entity_probs_expanded = entity_probs.unsqueeze(1)  # [batch, 1, vocab_size]
+                    entity_probs_expanded = entity_probs_expanded.expand(-1, att_feats.size(1), -1)
 
                     features_a_concat_b = torch.cat((att_feats, entity_probs_expanded), dim=2)  # [batch, patch_num, d_vf+vocab_size]
                     features_b_concat_a = torch.cat((entity_probs_expanded, att_feats), dim=2)  # [batch, patch_num, vocab_size+d_vf]
@@ -170,6 +171,8 @@ class R2GenMultiTaskModel(nn.Module):
                     entity_logits = self.entity_predictor(fc_feats)  
                     entity_probs = torch.sigmoid(entity_logits)
                     entity_probs_expanded = entity_probs.unsqueeze(1)  # [batch, 1, vocab_size]
+                    entity_probs_expanded = entity_probs_expanded.expand(-1, att_feats.size(1), -1)
+
                     features_a_concat_b = torch.cat((att_feats, entity_probs_expanded), dim=2)  # [batch, patch_num, d_vf+vocab_size]
                     features_b_concat_a = torch.cat((entity_probs_expanded, att_feats), dim=2)  # [batch, patch_num, vocab_size+d_vf]
 
