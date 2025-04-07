@@ -1,6 +1,6 @@
 python main_test.py \
---image_dir /hdd18t/JIMA/data/iu_xray/images/ \
---ann_path /hdd18t/JIMA/data/iu_xray/annotation.json \
+--image_dir /project/wli5/JIMA/data/iu_xray/images/ \
+--ann_path /project/wli5/JIMA/data/iu_xray/annotation.json \
 --dataset_name iu_xray \
 --max_seq_length 60 \
 --threshold 3 \
@@ -10,4 +10,4 @@ python main_test.py \
 --step_size 50 \
 --gamma 0.1 \
 --seed 9223 \
---load /hdd18t/JIMA/data/model_iu_xray.pth
+--load /project/wli5/JIMA/data/model_iu_xray.pth

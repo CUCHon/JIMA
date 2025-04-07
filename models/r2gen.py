@@ -84,9 +84,7 @@ class R2GenMultiTaskModel(nn.Module):
                     entity_probs_expanded = entity_probs.unsqueeze(1)  # [batch, 1, vocab_size]
                     entity_probs_expanded = entity_probs_expanded.expand(-1, att_feats.size(1), -1)
                     # 现在在乘法操作时会自动广播到 [batch, patch_num, vocab_size]
-                    # print(f"att_feats shape: {att_feats.shape}")
-                    # print(f"entity_probs_expanded shape: {entity_probs_expanded.shape}")
-                    # exit()
+
                     # 创建连接并交互
                     features_a_concat_b = torch.cat((att_feats, entity_probs_expanded), dim=2)  # [batch, patch_num, d_vf+vocab_size]
                     features_b_concat_a = torch.cat((entity_probs_expanded, att_feats), dim=2)  # [batch, patch_num, vocab_size+d_vf]
@@ -155,7 +153,6 @@ class R2GenMultiTaskModel(nn.Module):
                     entity_probs = torch.sigmoid(entity_logits)
                      # 使用广播得到相同维度的entity_probs
                     entity_probs_expanded = entity_probs.unsqueeze(1)  # [batch, 1, vocab_size]
-                    # entity_probs_expanded = entity_probs.unsqueeze(1)  # [batch, 1, vocab_size]
                     entity_probs_expanded = entity_probs_expanded.expand(-1, att_feats.size(1), -1)
                     #
 
@@ -193,7 +190,7 @@ class R2GenMultiTaskModel(nn.Module):
                     # 对应元素相乘，这里会自动广播entity_probs
                     cross_features = features_a_concat_b * features_b_concat_a              
                 
-                output = self.encoder_decoder(fc_feats, cross_features, mode='sample')
+                output,_ = self.encoder_decoder(fc_feats, cross_features, targets, mode='sample')
                 # output, _ = self.encoder_decoder(fc_feats, att_feats, mode='sample')
                 return output
         else:

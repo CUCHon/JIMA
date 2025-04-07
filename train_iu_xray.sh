@@ -1,6 +1,6 @@
 nohup python main_train.py \
---image_dir /hdd18t/JIMA/data/iu_xray/images/ \
---ann_path /hdd18t/JIMA/data/iu_xray/annotation_label_with_filtered_tokens.json \
+--image_dir /project/wli5/JIMA/data/iu_xray/images/ \
+--ann_path /project/wli5/JIMA/data/iu_xray/annotation_label_with_filtered_tokens.json \
 --dataset_name iu_xray \
 --max_seq_length 60 \
 --threshold 3 \
